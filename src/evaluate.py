@@ -7,13 +7,12 @@ from src.data_loader import load_bank_data
 # ==========================================================
 # ✅ AWS Setup
 # ----------------------------------------------------------
-# No need to put access/secret keys here if you've run `aws configure`.
-# boto3 will automatically read from ~/.aws/credentials
+# Uses credentials from `aws configure`
 # ==========================================================
 bedrock = boto3.client(service_name="bedrock-runtime", region_name="us-east-1")
 
 def explain_with_titan(transaction, prediction):
-    """Send fraud prediction to Titan for explanation."""
+    """Send fraud prediction to Titan for explanation, return JSON."""
     prompt = f"""
     A fraud detection model flagged this transaction as {prediction}.
     Features (scaled): {transaction}
@@ -35,18 +34,18 @@ def explain_with_titan(transaction, prediction):
         body=body.encode("utf-8")
     )
 
-    # Titan returns a streaming body → decode JSON
     result = json.loads(response["body"].read())
-    explanation = result["results"][0]["outputText"]
+    return {
+        "transaction": transaction,
+        "prediction": prediction,
+        "explanation": result["results"][0]["outputText"]
+    }
 
-    print("\n[Titan Explanation]")
-    print(explanation)
-
-def evaluate(bank_id=1):
+def evaluate(bank_id=1, save_json="fraud_explanations.json"):
     print(f"\n=== Evaluating Bank {bank_id} model ===")
     
     # Load test data
-    X_train, X_test, y_train, y_test = load_bank_data(bank_id)
+    _, X_test, _, y_test = load_bank_data(bank_id)
     
     # Load trained model
     model_path = f"models/baseline_bank{bank_id}.pkl"
@@ -57,12 +56,22 @@ def evaluate(bank_id=1):
     acc = accuracy_score(y_test, y_pred)
     print(f"Accuracy: {acc:.4f}")
     
-    # Go through test set and call Titan for flagged transactions
+    # Collect fraud explanations
+    fraud_results = []
     for i, pred in enumerate(y_pred):
         if pred == 1:  # Fraudulent
             transaction = X_test.iloc[i].to_dict()
-            print(f"\n🚨 Fraudulent transaction detected: {transaction}")
-            explain_with_titan(transaction, "fraudulent")
+            fraud_results.append(explain_with_titan(transaction, "fraudulent"))
+    
+    # Save to JSON file (optional)
+    if fraud_results:
+        with open(save_json, "w") as f:
+            json.dump(fraud_results, f, indent=4)
+        print(f"\n💾 Saved explanations to {save_json}")
+    
+    return fraud_results
 
 if __name__ == "__main__":
-    evaluate(bank_id=1)
+    results = evaluate(bank_id=1)
+    print("\n=== JSON Output ===")
+    print(json.dumps(results, indent=4))
