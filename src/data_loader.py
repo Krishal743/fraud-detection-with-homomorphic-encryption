@@ -3,38 +3,28 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
-def load_bank_data(bank_id, dataset_path="data/raw/PaySim.csv"):
-    """
-    Load and preprocess PaySim data shard for a given bank.
-    Splits the dataset into train/test and returns X_train, X_test, y_train, y_test.
-    """
-    # Load full dataset
-    df = pd.read_csv(dataset_path)
+def load_bank_data(bank_id, test_size=0.2, random_state=42):
+    file_path = f"data/processed/bank{bank_id}.csv"
+    df = pd.read_csv(file_path)
 
-    # Shuffle for randomness
-    df = df.sample(frac=1, random_state=42).reset_index(drop=True)
+    # Drop only ID columns
+    df = df.drop(columns=["nameOrig", "nameDest"], errors='ignore')
 
-    # Define features and target
-    feature_cols = ['step', 'amount', 'oldbalanceOrg', 'newbalanceOrig', 
-                    'oldbalanceDest', 'newbalanceDest']
-    X = df[feature_cols]
-    y = df['isFraud']
+    # One-hot encode categorical columns
+    categorical_cols = df.select_dtypes(include=["object"]).columns.tolist()
+    df = pd.get_dummies(df, columns=categorical_cols, drop_first=False)
 
-    # Scale features
+    # Separate features and target
+    X = df.drop(columns=["isFraud"])
+    y = df["isFraud"]
+
+    # Standardize features
     scaler = StandardScaler()
-    X = pd.DataFrame(scaler.fit_transform(X), columns=feature_cols)
+    X_scaled = pd.DataFrame(scaler.fit_transform(X), columns=X.columns)
 
-    # Split into train/test
-    X_train_full, X_test, y_train_full, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
+    # Train-test split
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_scaled, y, test_size=test_size, random_state=random_state, stratify=y
     )
-
-    # Split train data into 3 shards for 3 banks
-    shard_size = len(X_train_full) // 3
-    start_idx = (bank_id - 1) * shard_size
-    end_idx = start_idx + shard_size if bank_id < 3 else len(X_train_full)
-
-    X_train = X_train_full.iloc[start_idx:end_idx]
-    y_train = y_train_full.iloc[start_idx:end_idx]
 
     return X_train, X_test, y_train, y_test
